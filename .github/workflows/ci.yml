@@ -1,0 +1,61 @@
+# Corre en cada push a main, en cada pull request y a mano desde la pestaña Actions.
+# Instala con el lockfile, compila, comprueba tipos y ejecuta los tests.
+# Lint, Prisma, cobertura y el chequeo de drift del contrato se añaden cuando
+# existan esos comandos (docs/deployment.md §7 los describe por adelantado).
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Los scripts del repo invocan `corepack pnpm`. Sin esto, Corepack se queda
+  # esperando confirmación para descargar pnpm y el job no termina.
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+
+jobs:
+  verify:
+    name: instalar · compilar · typecheck · tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Lee la versión de `packageManager` en package.json (pnpm@12.8.1).
+      - name: Instalar pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # `pnpm typecheck` y `pnpm test` delegan en `corepack pnpm` a propósito:
+      # en local pnpm no está en el PATH. Este paso deja ese camino usable en el runner.
+      - name: Activar Corepack
+        run: corepack enable && corepack install
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Compilar
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Tests
+        run: pnpm test
